@@ -73,8 +73,79 @@ def ngramGen_firstOD(corpus, w2index, n):
 
 
 #############################
-class bigramModel(object):
-    def __init__(self, corpus, vocabulary=None, prior=None, alpha=1.0, lowthreshold=0):
+class ngramModel(object):
+    def __init__(self, n, vocabulary):
+        self._n = n
+        self._vocab = vocabulary
+
+    def perplexity(self, corpus):
+        LLB, N = 0.0, 0
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        for w in ngram_in:
+            LLB += np.log2(self.prob_in(w))
+            N += 1
+        for w in ngram_out:
+            LLB += np.log2(self.prob_out(w))
+            N += 1
+        return pow(2.0, -LLB/N)
+
+    def perplexity_OD(self, corpus):
+        LLB_in, N_in = 0.0, 0
+        LLB_out, N_out = 0.0, 0
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        for w in ngram_in:
+            if w[-1] == self._vocab['<STOP>']:
+                continue
+            LLB_in += np.log2(self.prob_in(w))
+            N_in += 1
+        for w in ngram_out:
+            LLB_out += np.log2(self.prob_out(w))
+            N_out += 1
+        pp_in = pow(2.0, -LLB_in/N_in)
+        pp_out = pow(2.0, -LLB_out/N_out)
+        return pp_in, pp_out
+
+    def perplexity_firstOD(self, corpus):
+        LLB_in, LLB_out, N = 0.0, 0.0, 0
+        ngram_in, ngram_out = ngramGen_firstOD(corpus, self._vocab, self._n)
+        for w in ngram_in:
+            LLB_in += np.log2(self.prob_in(w))
+            N += 1
+        for w in ngram_out:
+            LLB_out += np.log2(self.prob_out(w))
+            N += 1
+        pp_in = pow(2.0, -LLB_in/N)
+        pp_out = pow(2.0, -LLB_out/N)
+        return pp_in, pp_out
+
+    def perplexity_stop(self, corpus):
+        LLB, N = 0.0, 0
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        for w in ngram_in:
+            if w[-1] == self._vocab['<STOP>']:
+                LLB += np.log2(self.prob_in(w))
+                N += 1
+        return pow(2.0, -LLB/N)
+
+    def prediction(self, corpus):
+        cor_in, cor_out = 0, 0
+        N_in, N_out = 0, 0
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        for w in ngram_in:
+            if w[-1] == self._vocab['<STOP>']:
+                continue
+            cor_in += self.predict_in(w)
+            N_in += 1
+        for w in ngram_out:
+            cor_out += self.predict_out(w)
+            N_out += 1
+        return cor_in*1.0/N_in, cor_out*1.0/N_out
+
+
+#############################
+class bigramModel(ngramModel):
+    def __init__(self, corpus, vocabulary=None, prior=None,
+                 alpha=1.0, lowthreshold=0):
         self._n = 2
         self._alpha = alpha
         if vocabulary is None:
@@ -102,76 +173,69 @@ class bigramModel(object):
             prob[i, :] /= np.sum(prob[i, :])
         return prob
 
-    def cross_entropy(self, corpus):
-        LLB, N = 0.0, 0
-        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
-        for w in ngram_in:
-            LLB += np.log2(self._prob_in[w[0], w[1]])
-            N += 1
-        for w in ngram_out:
-            LLB += np.log2(self._prob_out[w[0], w[1]])
-            N += 1
-        return -LLB/N
+    def prob_in(self, w):
+        if isinstance(w, list) is False:
+            w = [w]
+        if len(w) == self._n:
+            return self._prob_in[w[0], w[1]]
+        else:
+            return self._prob_in[w[0], :]
 
-    def perplexity(self, corpus):
-        return pow(2.0, self.cross_entropy(corpus))
+    def prob_out(self, w):
+        if isinstance(w, list) is False:
+            w = [w]
+        if len(w) == self._n:
+            return self._prob_out[w[0], w[1]]
+        else:
+            return self._prob_out[w[0], :]
 
-    def perplexity_OD(self, corpus):
-        LLB_in, N_in = 0.0, 0
-        LLB_out, N_out = 0.0, 0
-        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
-        for w in ngram_in:
-            if w[1] == self._vocab['<STOP>']:
-                continue
-            LLB_in += np.log2(self._prob_in[w[0], w[1]])
-            N_in += 1
-        for w in ngram_out:
-            LLB_out += np.log2(self._prob_out[w[0], w[1]])
-            N_out += 1
-        pp_in = pow(2.0, -LLB_in/N_in)
-        pp_out = pow(2.0, -LLB_out/N_out)
-        return pp_in, pp_out
+    def predict_in(self, w):
+        if isinstance(w, list) is False:
+            w = [w]
+        if len(w) == self._n:
+            pred = np.argmax(self.prob_in(w[:-1]))
+            if pred == w[-1]:
+                return 1
+            else:
+                return 0
+        else:
+            pred = np.argmax(self.prob_in(w))
+            return pred
 
-    def perplexity_firstOD(self, corpus):
-        LLB_in, LLB_out, N = 0.0, 0.0, 0
-        ngram_in, ngram_out = ngramGen_firstOD(corpus, self._vocab, self._n)
-        for w in ngram_in:
-            LLB_in += np.log2(self._prob_in[w[0], w[1]])
-            N += 1
-        for w in ngram_out:
-            LLB_out += np.log2(self._prob_out[w[0], w[1]])
-            N += 1
-        pp_in = pow(2.0, -LLB_in/N)
-        pp_out = pow(2.0, -LLB_out/N)
-        return pp_in, pp_out
-
-    def perplexity_stop(self, corpus):
-        LLB, N = 0.0, 0
-        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
-        for w in ngram_in:
-            if w[1] == self._vocab['<STOP>']:
-                LLB += np.log2(self._prob_in[w[0], w[1]])
-                N += 1
-        return pow(2.0, -LLB/N)
+    def predict_out(self, w):
+        if isinstance(w, list) is False:
+            w = [w]
+        if len(w) == self._n:
+            pred = np.argmax(self.prob_out(w[:-1]))
+            if pred == w[-1]:
+                return 1
+            else:
+                return 0
+        elif len(w) == self._n - 1:
+            pred = np.argmax(self.prob_out(w))
+            return pred
 
     def get_params(self):
         return self._prob_in, self._prob_out
 
 
 #############################
-class trigramModel(object):
-    def __init__(self, corpus, vocabulary=None, alpha=1.0, lowthreshold=0):
+class trigramModel(ngramModel):
+    def __init__(self, corpus, vocabulary=None, prior=None,
+                 alpha_bi=1e-2, alpha_tri=0.1, lowthreshold=0):
         self._n = 3
-        self._alpha = alpha
+        self._alpha = alpha_tri
         if vocabulary is None:
             self._vocab = buildIndex(corpus, self._n, lowthreshold)
         else:
             self._vocab = vocabulary
+        self._bigram = bigramModel(corpus, vocabulary, prior,
+                                   alpha_bi, lowthreshold)
         ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
-        self._prob_in = self.probDbn(ngram_in)
-        self._prob_out = self.probDbn(ngram_out)
+        self._prob_in = self.probDbn(ngram_in, self._bigram.prob_in)
+        self._prob_out = self.probDbn(ngram_out, self._bigram.prob_out)
 
-    def probDbn(self, ngram):
+    def probDbn(self, ngram, priorFun):
         nwords = len(self._vocab)
         prob = {}
         for w in ngram:
@@ -179,11 +243,11 @@ class trigramModel(object):
                 if w[1] in prob[w[0]].keys():
                     prob[w[0]][w[1]][w[2]] += 1.0
                 else:
-                    prob[w[0]][w[1]] = np.zeros((nwords,)) + self._alpha
+                    prob[w[0]][w[1]] = priorFun(w[1]) * self._alpha * nwords
                     prob[w[0]][w[1]][w[2]] += 1.0
             else:
                 prob[w[0]] = {}
-                prob[w[0]][w[1]] = np.zeros((nwords,)) + self._alpha
+                prob[w[0]][w[1]] = priorFun(w[1]) * self._alpha * nwords
                 prob[w[0]][w[1]][w[2]] += 1.0
         for i in prob.keys():
             for j in prob[i].keys():
@@ -191,51 +255,181 @@ class trigramModel(object):
         return prob
 
     def prob_in(self, w):
-        prob = None
-        if w[0] in self._prob_in.keys():
-            if w[1] in self._prob_in[w[0]].keys():
-                prob = self._prob_in[w[0]][w[1]][w[2]]
+        assert (len(w) == self._n or len(w) == self._n - 1)
+        if len(w) == self._n:
+            prob = self._bigram.prob_in(w[1:])
+            if w[0] in self._prob_in.keys():
+                if w[1] in self._prob_in[w[0]].keys():
+                    prob = self._prob_in[w[0]][w[1]][w[2]]
+        else:
+            prob = self._bigram.prob_in(w[1])
+            if w[0] in self._prob_in.keys():
+                if w[1] in self._prob_in[w[0]].keys():
+                    prob = self._prob_in[w[0]][w[1]]
         return prob
 
     def prob_out(self, w):
-        prob = None
-        if w[0] in self._prob_in.keys():
-            if w[1] in self._prob_out[w[0]].keys():
-                prob = self._prob_out[w[0]][w[1]][w[2]]
+        assert (len(w) == self._n or len(w) == self._n - 1)
+        if len(w) == self._n:
+            prob = self._bigram.prob_out(w[1:])
+            if w[0] in self._prob_out.keys():
+                if w[1] in self._prob_out[w[0]].keys():
+                    prob = self._prob_out[w[0]][w[1]][w[2]]
+        else:
+            prob = self._bigram.prob_out(w[1])
+            if w[0] in self._prob_out.keys():
+                if w[1] in self._prob_out[w[0]].keys():
+                    prob = self._prob_out[w[0]][w[1]]
         return prob
+
+    def predict_in(self, w):
+        assert (len(w) == self._n or len(w) == self._n - 1)
+        pred = np.argmax(self._bigram.prob_in(w[1]))
+        if w[0] in self._prob_in.keys():
+            if w[1] in self._prob_in[w[0]].keys():
+                pred = np.argmax(self._prob_in[w[0]][w[1]])
+        if len(w) == self._n:
+            if pred == w[-1]:
+                return 1
+            else:
+                return 0
+        else:
+            return pred
+
+    def predict_out(self, w):
+        assert (len(w) == self._n or len(w) == self._n - 1)
+        pred = np.argmax(self._bigram._prob_out[w[1], :])
+        if w[0] in self._prob_out.keys():
+            if w[1] in self._prob_out[w[0]].keys():
+                pred = np.argmax(self._prob_out[w[0]][w[1]])
+        if len(w) == self._n:
+            if pred == w[-1]:
+                return 1
+            else:
+                return 0
+        else:
+            return pred
+
+    def count_unseen(self, corpus):
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        seen_in, seen_out = 0, 0
+        for w in ngram_in:
+            if w[0] in self._prob_in.keys():
+                if w[1] in self._prob_in[w[0]].keys():
+                    seen_in += 1
+        unseen_in = (len(ngram_in) - seen_in) * 1.0 / len(ngram_in)
+        for w in ngram_out:
+            if w[0] in self._prob_out.keys():
+                if w[1] in self._prob_out[w[0]].keys():
+                    seen_out += 1
+        unseen_out = (len(ngram_out) - seen_out) * 1.0 / len(ngram_out)
+        return unseen_in, unseen_out
 
 
 #############################
-class hybridModel(object):
-    def __init__(self, corpus, vocabulary=None, prior=None, alpha_prior=1e-2, alpha_tri=1e-5, Lambda=0.5, lowthreshold=0):
-        self._vocab = vocabulary
-        self._lambda = Lambda
-        self._bigram = bigramModel(corpus, vocabulary, prior, alpha_prior, lowthreshold)
-        self._trigram = trigramModel(corpus, vocabulary, alpha_tri, lowthreshold)
+class fourgramModel(ngramModel):
+    def __init__(self, corpus, vocabulary=None, prior=None,
+                 alpha_bi=1e-2, alpha_tri=0.1, alpha_four=1.0, lowthreshold=0):
+        self._n = 4
+        self._alpha = alpha_four
+        if vocabulary is None:
+            self._vocab = buildIndex(corpus, self._n, lowthreshold)
+        else:
+            self._vocab = vocabulary
+        self._trigram = trigramModel(corpus, vocabulary, prior,
+                                     alpha_bi, alpha_tri, lowthreshold)
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        self._prob_in = self.probDbn(ngram_in, self._trigram.prob_in)
+        self._prob_out = self.probDbn(ngram_out, self._trigram.prob_out)
 
-    def cross_entropy(self, corpus):
-        LLB, N = 0.0, 0
-        bigram_in, bigram_out = ngramGen(corpus, self._vocab, 2)
-        trigram_in, trigram_out = ngramGen(corpus, self._vocab, 3)
-        for i in xrange(len(bigram_in)):
-            biProb = self._bigram._prob_in[bigram_in[i][0], bigram_in[i][1]]
-            triProb = self._trigram.prob_in(trigram_in[i])
-            if triProb is not None:
-                prob = biProb * (1-self._lambda) + triProb * self._lambda
+    def probDbn(self, ngram, priorFun):
+        nwords = len(self._vocab)
+        prob = {}
+        for w in ngram:
+            if w[0] in prob.keys():
+                if w[1] in prob[w[0]].keys():
+                    if w[2] in prob[w[0]][w[1]].keys():
+                        prob[w[0]][w[1]][w[2]][w[3]] += 1.0
+                    else:
+                        prob[w[0]][w[1]][w[2]] = priorFun(w[1:3]) * \
+                            self._alpha * nwords
+                        prob[w[0]][w[1]][w[2]][w[3]] += 1.0
+                else:
+                    prob[w[0]][w[1]] = {}
+                    prob[w[0]][w[1]][w[2]] = priorFun(w[1:3]) * \
+                        self._alpha * nwords
+                    prob[w[0]][w[1]][w[2]][w[3]] += 1.0
             else:
-                prob = biProb
-            LLB += np.log2(prob)
-            N += 1
-        for i in xrange(len(bigram_out)):
-            biProb = self._bigram._prob_in[bigram_in[i][0], bigram_in[i][1]]
-            triProb = self._trigram.prob_in(trigram_in[i])
-            if triProb is not None:
-                prob = biProb * (1-self._lambda) + triProb * self._lambda
-            else:
-                prob = biProb
-            LLB += np.log2(prob)
-            N += 1
-        return -LLB/N
+                prob[w[0]] = {}
+                prob[w[0]][w[1]] = {}
+                prob[w[0]][w[1]][w[2]] = priorFun(w[1:3]) * \
+                    self._alpha * nwords
+                prob[w[0]][w[1]][w[2]][w[3]] += 1.0
+        for i in prob.keys():
+            for j in prob[i].keys():
+                for k in prob[i][j].keys():
+                    prob[i][j][k] /= np.sum(prob[i][j][k])
+        return prob
 
-    def perplexity(self, corpus):
-        return pow(2.0, self.cross_entropy(corpus))
+    def prob_in(self, w):
+        prob = self._trigram.prob_in(w[1:])
+        if w[0] in self._prob_in.keys():
+            if w[1] in self._prob_in[w[0]].keys():
+                if w[2] in self._prob_in[w[0]][w[1]].keys():
+                    prob = self._prob_in[w[0]][w[1]][w[2]][w[3]]
+        return prob
+
+    def prob_out(self, w):
+        prob = self._trigram.prob_out(w[1:])
+        if w[0] in self._prob_out.keys():
+            if w[1] in self._prob_out[w[0]].keys():
+                if w[2] in self._prob_out[w[0]][w[1]].keys():
+                    prob = self._prob_out[w[0]][w[1]][w[2]][w[3]]
+        return prob
+
+    def predict_in(self, w):
+        assert (len(w) == self._n or len(w) == self._n - 1)
+        pred = np.argmax(self._trigram.prob_in(w[1:3]))
+        if w[0] in self._prob_in.keys():
+            if w[1] in self._prob_in[w[0]].keys():
+                if w[2] in self._prob_in[w[0]][w[1]].keys():
+                    pred = np.argmax(self._prob_in[w[0]][w[1]][w[2]])
+        if len(w) == self._n:
+            if pred == w[-1]:
+                return 1
+            else:
+                return 0
+        else:
+            return pred
+
+    def predict_out(self, w):
+        assert (len(w) == self._n or len(w) == self._n - 1)
+        pred = np.argmax(self._trigram.prob_out(w[1:3]))
+        if w[0] in self._prob_out.keys():
+            if w[1] in self._prob_out[w[0]].keys():
+                if w[2] in self._prob_out[w[0]][w[1]].keys():
+                    pred = np.argmax(self._prob_out[w[0]][w[1]][w[2]])
+        if len(w) == self._n:
+            if pred == w[-1]:
+                return 1
+            else:
+                return 0
+        else:
+            return pred
+
+    def count_unseen(self, corpus):
+        ngram_in, ngram_out = ngramGen(corpus, self._vocab, self._n)
+        seen_in, seen_out = 0, 0
+        for w in ngram_in:
+            if w[0] in self._prob_in.keys():
+                if w[1] in self._prob_in[w[0]].keys():
+                    if w[2] in self._prob_in[w[0]][w[1]].keys():
+                        seen_in += 1
+        unseen_in = (len(ngram_in) - seen_in) * 1.0 / len(ngram_in)
+        for w in ngram_out:
+            if w[0] in self._prob_out.keys():
+                if w[1] in self._prob_out[w[0]].keys():
+                    if w[2] in self._prob_out[w[0]][w[1]].keys():
+                        seen_out += 1
+        unseen_out = (len(ngram_out) - seen_out) * 1.0 / len(ngram_out)
+        return unseen_in, unseen_out

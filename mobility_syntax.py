@@ -20,7 +20,7 @@ def build_corpus(records, test_size=30):
     return train, test
 
 
-def load_vocabulary(filepath, n=3):
+def load_vocabulary(filepath, n=2):
     rd = csv.reader(open(filepath, 'rb'), delimiter=",")
     words = rd.next()
     vocab, indx = {}, 0
@@ -51,7 +51,6 @@ def construct_priors(users, V):
     print 'Number of user days in training set = {}'.format(len(C))
     bigram = lm.bigramModel(C, V, alpha=1e-4, lowthreshold=0)
     p_in, p_out = bigram.get_params()
-    # print p_in.shape
     '''
     N = len(V.keys())
     wt_in = csv.writer(open("../Data/prior_in.csv", 'wb'))
@@ -62,100 +61,166 @@ def construct_priors(users, V):
     for i in xrange(N):
         wt_out.writerows(p_out[i, :].tolist())
     '''
-    return p_in, p_out
+    return (p_in, p_out)
 
 
-def user_bigram(users, V, prior, alpha):
+def user_bigram(users, V, prior=None, alpha=1e-2):
     perplexity = []
-    #print 'Estimating language models...'
+    print 'Estimating bigram models for each user...'
     for user in users:
         if (user.getActiveDays() < 60):
             continue
         X_train, X_test = build_corpus(user.tripList, 30)
-        bigram = lm.bigramModel(X_train, V, prior=prior, alpha=alpha, lowthreshold=0)
+        bigram = lm.bigramModel(X_train, V, prior=prior, alpha=alpha)
         perplexity.append(bigram.perplexity(X_test))
     print 'Median Perplexity = {}'.format(np.median(perplexity))
     return perplexity
 
 
-def user_hybrid(users, V, prior, Lambda):
-    perplexity = []
-    #print 'Estimating language models...'
+def user_bigram_pp(users, V, prior, alpha=1e-2):
+    pp_in, pp_out = [], []
+    pred_in, pred_out = [], []
+    print 'Estimating bigram models for each user...'
     for user in users:
         if (user.getActiveDays() < 60):
             continue
         X_train, X_test = build_corpus(user.tripList, 30)
-        bigram = lm.hybridModel(X_train, V, prior=prior, Lambda=Lambda)
-        perplexity.append(bigram.perplexity(X_test))
-    print 'Median Perplexity = {}'.format(np.median(perplexity))
-    return perplexity
-
-
-def user_bigram_pp(users, V, prior, alpha):
-    pp_in = []
-    pp_out = []
-    pp_firIn = []
-    pp_firOut = []
-    pp_stop = []
-    #print 'Estimating language models...'
-    for user in users:
-        if (user.getActiveDays() < 60):
-            continue
-        X_train, X_test = build_corpus(user.tripList, 30)
-        bigram = lm.bigramModel(X_train, V, prior=prior, alpha=alpha, lowthreshold=0)
+        bigram = lm.bigramModel(X_train, V, prior=prior, alpha=alpha)
         ppIn, ppOut = bigram.perplexity_OD(X_test)
-        ppFirIn, ppFirOut = bigram.perplexity_firstOD(X_test)
-        ppStop = bigram.perplexity_stop(X_test)
+        predIn, predOut = bigram.prediction(X_test)
         pp_in.append(ppIn)
         pp_out.append(ppOut)
-        pp_firIn.append(ppFirIn)
-        pp_firOut.append(ppFirOut)
-        pp_stop.append(ppStop)
-    #print 'Median Perplexity = {}'.format(np.median(perplexity))
-    return pp_in, pp_out, pp_firIn, pp_firOut, pp_stop
+        pred_in.append(predIn)
+        pred_out.append(predOut)
+    print 'Median In Perplexity = {}'.format(np.median(pp_in))
+    print 'Median Out Perplexity = {}'.format(np.median(pp_out))
+    print 'Median In Prediction Accuracy = {}'.format(np.median(pred_in))
+    print 'Median Out Prediction Accuracy = {}'.format(np.median(pred_out))
+    return pp_in, pp_out, pred_in, pred_out
+
+
+def user_trigram(users, V, prior, alpha_bi=1e-2, alpha_tri=0.1):
+    pp = []
+    count = 0
+    print 'Estimating trigram models for each user...'
+    for user in users:
+        if (user.getActiveDays() < 60):
+            continue
+        X_train, X_test = build_corpus(user.tripList, 30)
+        trigram = lm.trigramModel(X_train, V, prior=prior,
+                                  alpha_bi=alpha_bi, alpha_tri=alpha_tri)
+        perplexity = trigram.perplexity(X_test)
+        pp.append(perplexity)
+        count += 1
+        if count % 100 == 0:
+            print count
+    print 'Median Perplexity = {}'.format(np.median(pp))
+    return pp
+
+
+def user_trigram_pp(users, V, prior, alpha_bi=1e-2, alpha_tri=0.01):
+    pp_in, pp_out = [], []
+    pred_in, pred_out = [], []
+    count = 0
+    print 'Estimating trigram models for each user...'
+    for user in users:
+        if (user.getActiveDays() < 60):
+            continue
+        X_train, X_test = build_corpus(user.tripList, 30)
+        trigram = lm.trigramModel(X_train, V, prior=prior,
+                                  alpha_bi=alpha_bi, alpha_tri=alpha_tri)
+        ppIn, ppOut = trigram.perplexity_OD(X_test)
+        predIn, predOut = trigram.prediction(X_test)
+        pp_in.append(ppIn)
+        pp_out.append(ppOut)
+        pred_in.append(predIn)
+        pred_out.append(predOut)
+        count += 1
+        if count % 100 == 0:
+            print count
+    print 'Median In Perplexity = {}'.format(np.median(pp_in))
+    print 'Median Out Perplexity = {}'.format(np.median(pp_out))
+    print 'Median In Prediction Accuracy = {}'.format(np.median(pred_in))
+    print 'Median Out Prediction Accuracy = {}'.format(np.median(pred_out))
+    return pp_in, pp_out, pred_in, pred_out
+
+
+def user_fourgram_pp(users, V, prior, alpha_bi=1e-2, alpha_tri=0.1,
+                     alpha_four=0.01):
+    pp_in, pp_out = [], []
+    pred_in, pred_out = [], []
+    count = 0
+    print 'Estimating fourgram models for each user...'
+    for user in users:
+        if (user.getActiveDays() < 60):
+            continue
+        X_train, X_test = build_corpus(user.tripList, 30)
+        fourgram = lm.fourgramModel(X_train, V, prior=prior,
+                                    alpha_bi=alpha_bi, alpha_tri=alpha_tri,
+                                    alpha_four=alpha_four)
+        ppIn, ppOut = fourgram.perplexity_OD(X_test)
+        predIn, predOut = fourgram.prediction(X_test)
+        pp_in.append(ppIn)
+        pp_out.append(ppOut)
+        pred_in.append(predIn)
+        pred_out.append(predOut)
+        count += 1
+        if count % 100 == 0:
+            print count
+    print 'Median In Perplexity = {}'.format(np.median(pp_in))
+    print 'Median Out Perplexity = {}'.format(np.median(pp_out))
+    print 'Median In Prediction Accuracy = {}'.format(np.median(pred_in))
+    print 'Median Out Prediction Accuracy = {}'.format(np.median(pred_out))
+    return pp_in, pp_out, pred_in, pred_out
 
 
 def popu_bigram(users, V, alpha):
     counter = 0
-    C = []
+    trainSet = []
+    testList = []
+    print 'Estimating bigram model for the whole population...'
     for user in users:
         if (user.getActiveDays() < 60):
             continue
         X_train, X_test = build_corpus(user.tripList, 30)
-        C.extend(X_train)
+        trainSet.extend(X_train)
+        testList.append(X_test)
         counter += 1
     print 'Number of users = {}'.format(counter)
-    print 'Number of user days in training set = {}'.format(len(C))
-    bigram = lm.bigramModel(C, V, alpha=alpha, lowthreshold=0)
-    
+    print 'Number of user days in training set = {}'.format(len(trainSet))
+    bigram = lm.bigramModel(trainSet, V, alpha=alpha, lowthreshold=0)
     perplexity = []
-    #print 'Estimating language models...'
-    for user in users:
-        if (user.getActiveDays() < 60):
-            continue
-        X_train, X_test = build_corpus(user.tripList, 30)
-        perplexity.append(bigram.perplexity(X_train))
+    for X_test in testList:
+        perplexity.append(bigram.perplexity(X_test))
     print 'Median Perplexity = {}'.format(np.median(perplexity))
     return perplexity
 
 
-def evaluate_pp(users, V, prior):
-    for a in [0.01]:
-        print 'if alpha = {}'.format(a)
-        #perplexity = user_bigram(users, V, prior, alpha=a)
-        pp_in, pp_out, pp_firIn, pp_firOut, pp_stop = user_bigram_pp(users, V, prior, alpha=a)
-    #plt.hist(perplexity, bins=range(30))
-    #plt.xlabel('Perplexity')
-    #plt.ylabel('Number of Users')
-    #plt.show()
-    #'''
-    pp_set = [pp_in, pp_out, pp_firIn, pp_firOut, pp_stop]
-    names = ['In', 'Out', 'First In', 'First Out', 'Stop']
+def plot4(pp_list):
+    names = ['In Perplexity', 'Out Perplexity',
+             'In Prediction', 'Out Prediction']
+    f, ax = plt.subplots(2, 2)
+    for i in xrange(4):
+        row = int(i/2)
+        col = i % 2
+        if row == 0:
+            ax[row, col].set_ylim([0, 150])
+            ax[row, col].hist(pp_list[i], bins=range(30))
+        else:
+            ax[row, col].set_ylim([0, 100])
+            ax[row, col].hist(pp_list[i], bins=[j/20.0 for j in range(21)])
+        median = ' (median = {0:.2f})'.format(np.median(pp_list[i]))
+        ax[row, col].set_title(names[i] + median)
+    plt.show()
+
+
+def plot6(pp_list):
+    names = ['In', 'Out', 'First In', 'First Out', 'Stop', 'Overall']
     f, ax = plt.subplots(2, 3)
-    for i in xrange(5):
-        row = i%2
+    for i in xrange(len(names)):
+        row = i % 2
         col = int(i/2)
-        pp = pp_set[i]
+        pp = pp_list[i]
         ax[row, col].hist(pp, bins=range(30))
         ax[row, col].set_title(names[i])
     plt.show()
@@ -164,17 +229,8 @@ def evaluate_pp(users, V, prior):
 if __name__ == '__main__':
     curr_dir = os.path.dirname(os.path.realpath(__file__))
     os.chdir(curr_dir)
-    V = load_vocabulary("../Data/all_stations.csv")
+    V = load_vocabulary("../Data/all_stations.csv", n=4)
     users = ur.readPanelData("../Data/sampleData_2013.csv")
-    '''
-    for a in [0.05]:
-        print 'if alpha = {}'.format(a)
-        perplexity = popu_bigram(users, V, alpha=a)
-    '''
-    p_in, p_out = construct_priors(users, V)
-    prior = (p_in, p_out)
-    perplexity = user_hybrid(users, V, prior, Lambda=0.5)
-    plt.hist(perplexity, bins=range(30))
-    plt.xlabel('Perplexity')
-    plt.ylabel('Number of Users')
-    plt.show()
+    prior = construct_priors(users, V)
+    pp = user_fourgram_pp(users, V, prior)
+    plot4(pp)
